@@ -1,109 +1,102 @@
-const express = require('express');
-const multer = require('multer');
-const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
-const path = require('path');
-const fs = require('fs');
+import { useState, useEffect } from 'react';
 
-const app = express();
-const PORT = 3000;
+export default function Home() {
+  const [seconds, setSeconds] = useState(60);
+  const [status, setStatus] = useState({ active: false, progress: 0, message: '', error: null });
+  const [videoSrc, setVideoSrc] = useState(null);
 
-// Configura o caminho do ffmpeg (usando ffmpeg-static)
-if (ffmpegPath) {
-    ffmpeg.setFfmpegPath(ffmpegPath);
-}
-
-// pasta onde os vídeos enviados serão salvos
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
-}
-
-const upload = multer({ dest: uploadDir });
-
-// servir arquivos estáticos (HTML, CSS, JS)
-app.use(express.static(path.join(__dirname, 'public')));
-
-// rota para processar o vídeo
-app.post('/processar', upload.single('video'), (req, res) => {
-    const file = req.file;
-    let durationPerClip = parseInt(req.body.duration, 10);
-
-    if (!file) {
-        return res.status(400).json({ error: 'Nenhum vídeo enviado.' });
-    }
-
-    if (isNaN(durationPerClip) || durationPerClip <= 0) {
-        durationPerClip = 60; // default 60s
-    }
-
-    const inputPath = file.path;
-    const ext = path.extname(file.originalname) || '.mp4';
-    const baseName = path.basename(file.originalname, ext);
-    const outputDir = path.dirname(inputPath); // mesma pasta do "original" (uploads)
-
-    // 1) Descobrir a duração total do vídeo
-    ffmpeg.ffprobe(inputPath, (err, metadata) => {
-        if (err) {
-            console.error('Erro ao ler metadata:', err);
-            return res.status(500).json({ error: 'Erro ao ler informações do vídeo.' });
+  // Check initial video availability
+  useEffect(() => {
+    // We check if video is available by trying to fetch a byte
+    fetch('/api/video', { method: 'HEAD' })
+      .then(res => {
+        if (res.ok) {
+          setVideoSrc('/api/video');
         }
+      })
+      .catch(err => console.error(err));
+  }, []);
 
-        const totalSeconds = Math.floor(metadata.format.duration);
-        const numParts = Math.ceil(totalSeconds / durationPerClip);
-
-        console.log(`Duração total: ${totalSeconds}s, partes: ${numParts}`);
-
-        const outputFiles = [];
-
-        // Função que cria um corte (Promise)
-        const createClip = (index) => {
-            return new Promise((resolve, reject) => {
-                const startTime = index * durationPerClip;
-                const clipName = `${baseName}_${String(index + 1).padStart(2, '0')}${ext}`;
-                const outputPath = path.join(outputDir, clipName);
-
-                ffmpeg(inputPath)
-                    .setStartTime(startTime)
-                    .setDuration(durationPerClip)
-                    .output(outputPath)
-                    .on('end', () => {
-                        console.log(`Criado: ${clipName}`);
-                        outputFiles.push(clipName);
-                        resolve();
-                    })
-                    .on('error', (error) => {
-                        console.error(`Erro no corte ${index + 1}:`, error);
-                        reject(error);
-                    })
-                    .run();
-            });
-        };
-
-        // 2) Criar todas as partes em sequência
-        const jobs = [];
-        for (let i = 0; i < numParts; i++) {
-            jobs.push(createClip(i));
+  // Poll status
+  useEffect(() => {
+    let interval;
+    if (status.active || status.message === 'Starting processing...') {
+      interval = setInterval(async () => {
+        const res = await fetch('/api/process');
+        const data = await res.json();
+        setStatus(data);
+        if (!data.active && data.progress === 100) {
+            // Job finished
+            setVideoSrc(null); // Original deleted
         }
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [status.active, status.message]);
 
-        Promise.all(jobs)
-            .then(() => {
-                // se quiser, pode apagar o arquivo enviado:
-                // fs.unlinkSync(inputPath);
+  const startProcessing = async () => {
+    try {
+      const res = await fetch('/api/process', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ seconds }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setStatus(data.jobStatus);
+      } else {
+        alert(data.error);
+      }
+    } catch (err) {
+      alert('Error starting process');
+    }
+  };
 
-                res.json({
-                    message: 'Vídeo cortado com sucesso!',
-                    partes: outputFiles,
-                    pasta: outputDir,
-                });
-            })
-            .catch((error) => {
-                console.error('Erro geral:', error);
-                res.status(500).json({ error: 'Erro ao cortar o vídeo.' });
-            });
-    });
-});
+  return (
+    <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
+      <h1>Cortador de Vídeo</h1>
 
-app.listen(PORT, () => {
-    console.log(`Servidor rodando em http://localhost:${PORT}`);
-});
+      <div style={{ marginBottom: '20px' }}>
+        <label style={{ marginRight: '10px' }}>
+          Segundos por parte:
+          <input
+            type="number"
+            value={seconds}
+            onChange={(e) => setSeconds(e.target.value)}
+            style={{ marginLeft: '10px', padding: '5px' }}
+          />
+        </label>
+        <button
+          onClick={startProcessing}
+          disabled={status.active}
+          style={{ padding: '5px 15px', cursor: 'pointer' }}
+        >
+          {status.active ? 'Processando...' : 'Iniciar'}
+        </button>
+      </div>
+
+      {status.message && (
+        <div style={{ marginBottom: '20px', padding: '10px', backgroundColor: '#f0f0f0', borderRadius: '5px' }}>
+          <strong>Status:</strong> {status.message}
+          {status.error && <div style={{ color: 'red' }}>Error: {status.error}</div>}
+          <div style={{ width: '100%', backgroundColor: '#ddd', height: '20px', marginTop: '5px' }}>
+             <div style={{ width: `${status.progress || 0}%`, backgroundColor: 'green', height: '100%', transition: 'width 0.5s' }}></div>
+          </div>
+        </div>
+      )}
+
+      {videoSrc ? (
+        <div>
+          <h2>Vídeo Original (Preview)</h2>
+          <video controls width="600" src={videoSrc}>
+            Your browser does not support the video tag.
+          </video>
+        </div>
+      ) : (
+        <p>Nenhum vídeo original encontrado (ou foi processado e deletado).</p>
+      )}
+    </div>
+  );
+}
