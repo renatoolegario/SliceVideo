@@ -68,19 +68,24 @@ export default function handler(req, res) {
 }
 
 async function processVideo(inputFile, outputDir, splitDuration, originalFileName) {
+  console.log(`[Process] Starting video processing: ${inputFile}`);
   try {
     // 1. Get Duration
     jobStatus.message = 'Getting video info...';
+    console.log('[Process] Probing video info...');
 
     ffmpeg.ffprobe(inputFile, (err, metadata) => {
       if (err) {
+        console.error('[Process] Error probing video:', err);
         jobStatus.error = err.message;
         jobStatus.active = false;
         return;
       }
 
+      console.log('[Process] Video probe success.');
       const totalDuration = metadata.format.duration;
       jobStatus.message = `Total duration: ${totalDuration}s. Splitting every ${splitDuration}s...`;
+      console.log(`[Process] ${jobStatus.message}`);
 
       // Calculate number of segments
       const segmentCount = Math.ceil(totalDuration / splitDuration);
@@ -91,6 +96,7 @@ async function processVideo(inputFile, outputDir, splitDuration, originalFileNam
       // However, the 'segment' muxer is much faster and cleaner. Let's use the segment muxer.
 
       const outputPattern = path.join(outputDir, `${originalFileName}_%03d.mp4`);
+      console.log(`[Process] Output pattern: ${outputPattern}`);
 
       ffmpeg(inputFile)
         .outputOptions([
@@ -102,6 +108,7 @@ async function processVideo(inputFile, outputDir, splitDuration, originalFileNam
         ])
         .output(outputPattern)
         .on('progress', (progress) => {
+          console.log('[Process] Progress update:', progress);
           // progress.percent is sometimes undefined for segment muxer with copy,
           // but we can try to use timemark or just generic "processing".
           // If we re-encode, we get percent. Copying is instant usually.
@@ -114,20 +121,24 @@ async function processVideo(inputFile, outputDir, splitDuration, originalFileNam
           }
         })
         .on('end', () => {
+          console.log('[Process] Splitting complete.');
           jobStatus.progress = 100;
           jobStatus.message = 'Splitting complete. Deleting original...';
 
           try {
+            console.log('[Process] Deleting original file...');
             fs.unlinkSync(inputFile);
             jobStatus.message = 'Done. Original deleted.';
             jobStatus.active = false;
+            console.log('[Process] Original deleted successfully. Job done.');
           } catch (delErr) {
+            console.error('[Process] Failed to delete original:', delErr);
             jobStatus.error = `Failed to delete original: ${delErr.message}`;
             jobStatus.active = false;
           }
         })
         .on('error', (err) => {
-          console.error('FFmpeg error:', err);
+          console.error('[Process] FFmpeg error:', err);
           jobStatus.error = err.message;
           jobStatus.active = false;
         })
@@ -135,6 +146,7 @@ async function processVideo(inputFile, outputDir, splitDuration, originalFileNam
     });
 
   } catch (error) {
+    console.error('[Process] Unexpected error:', error);
     jobStatus.error = error.message;
     jobStatus.active = false;
   }

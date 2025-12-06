@@ -35,6 +35,7 @@ export default function Home() {
   }, [status.active, status.message]);
 
   const startProcessing = async () => {
+    console.log('[Client] Requesting processing with seconds:', seconds);
     try {
       const res = await fetch('/api/process', {
         method: 'POST',
@@ -44,12 +45,15 @@ export default function Home() {
         body: JSON.stringify({ seconds }),
       });
       const data = await res.json();
+      console.log('[Client] Processing response:', data);
       if (res.ok) {
         setStatus(data.jobStatus);
       } else {
+        console.error('[Client] Processing error:', data.error);
         alert(data.error);
       }
     } catch (err) {
+      console.error('[Client] Network/Server error:', err);
       alert('Error starting process');
     }
   };
