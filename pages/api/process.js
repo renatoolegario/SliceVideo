@@ -2,8 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from 'ffmpeg-static';
+import ffprobeInstaller from 'ffprobe-static';
 
 ffmpeg.setFfmpegPath(ffmpegInstaller);
+ffmpeg.setFfprobePath(ffprobeInstaller.path);
 
 // Simple in-memory store for progress.
 // Note: This is global to the module, so it resets on server restart and is shared across all requests.
