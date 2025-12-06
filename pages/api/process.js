@@ -2,8 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from 'ffmpeg-static';
+import ffprobeInstaller from 'ffprobe-static';
 
+// Caminho do ffmpeg (já estava certo)
 ffmpeg.setFfmpegPath(ffmpegInstaller);
+
+// Caminho do ffprobe (o que estava faltando)
+ffmpeg.setFfprobePath(ffprobeInstaller.path);
+
 
 // Simple in-memory store for progress.
 // Note: This is global to the module, so it resets on server restart and is shared across all requests.
@@ -105,10 +111,10 @@ async function processVideo(inputFile, outputDir, splitDuration, originalFileNam
           // If we re-encode, we get percent. Copying is instant usually.
           // Let's assume copying is fast enough that progress bar jumps to 100 quickly.
           if (progress.percent) {
-             jobStatus.progress = progress.percent;
+            jobStatus.progress = progress.percent;
           } else {
-             // Fallback if percent is missing (common with -c copy)
-             jobStatus.message = `Processing... Timemark: ${progress.timemark}`;
+            // Fallback if percent is missing (common with -c copy)
+            jobStatus.message = `Processing... Timemark: ${progress.timemark}`;
           }
         })
         .on('end', () => {
